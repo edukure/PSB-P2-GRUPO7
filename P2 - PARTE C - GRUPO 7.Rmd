@@ -9,6 +9,8 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+## O arquivo .rmd encontra-se no link https://github.com/edukure/PSB-P2-GRUPO7
+
 ## 1) O arquivo “ColetaEEG-M10.rhd” - disponível na plataforma Moodle possui dados referentes a 16 canais de sinais EEG e um canal auxiliar (pulso) que foi utilizado para indicar a marcação de eventos durante a coleta dos dados. No total foram gerados 5 eventos (E1, E2, E3, E4 e E5). Os eventos registrados estão relacionados com os seguintes estados mentais do indivíduo:
 
 - Mente focada, em uma determinada imagem internalizada, por exemplo o Sol, com os olhos abertos.
