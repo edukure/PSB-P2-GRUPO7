@@ -1,0 +1,840 @@
+---
+title: "P2 - PSB - GRUPO 7"
+author: "Grupo 7"
+date: "13/12/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1) O arquivo “ColetaEEG-M10.rhd” - disponível na plataforma Moodle possui dados referentes a 16 canais de sinais EEG e um canal auxiliar (pulso) que foi utilizado para indicar a marcação de eventos durante a coleta dos dados. No total foram gerados 5 eventos (E1, E2, E3, E4 e E5). Os eventos registrados estão relacionados com os seguintes estados mentais do indivíduo:
+
+- Mente focada, em uma determinada imagem internalizada, por exemplo o Sol, com os olhos abertos.
+- Mente focada, em uma determinada imagem internalizada, por exemplo o Sol, com os olhos fechados.
+- Realização mental de operações matemáticas:
+
+$$ X =3 3+55+12 $$
+
+$$X = 300−33+95 $$
+$$X=\frac{33}{4}$$
+$$X=2^{16}$$
+
+
+### Converta os arquivos dos sinais coletados em formato Excel. Para isto utilize a toolbox disponível em https://github.com/aoandrade/PDPack. As seguintes bibliotecas e programas exemplos devem ser empregadas:
+
+#### read_Intan_RHD2000_file.R
+#### ExampleOpenItantFile.R
+#### ExampleConvertIntanToExcel.R
+
+
+Abrindo o arquido .rhd e convertendo para Excel:
+
+```{r eval=FALSE, include=FALSE}
+source("read_Intan_RHD2000_file.R")
+
+
+filename <- file.choose() # Sele??o do arquivo .rdh (intan)
+ConvertRHD2Excel(filename)
+```
+
+Abrindo aquivo Excel:
+
+```{r}
+library(openxlsx)
+excelfile <- file.choose()
+EEGDataFrame <- read.xlsx(excelfile, sheet = 1, skipEmptyRows = FALSE)
+```
+
+
+### b) Plote cada um dos sinais coletados utilizando a função dygraph. Em cada um dos gráficos sombreie as regiões que indiquem o início e o fim das atividades (eventos) realizadas durante o protocolo experimental.
+
+- A função dyShading deve ser utilizada para realizar o sombreamento.
+- Todos os gráficos devem conter legendas dos eixos e título que identifique o sinal.
+- O intervalo em que uma atividade (evento) ocorre é delimitado por dois pulsos consecutivos. – Considere o início e o final da atividade os instantes em que o pulso sai do nível alto e retorna ao nível baixo.
+- No conjunto de dados em análise temos 10 pulsos, ou seja, cada par de pulso delimita o ínicio e o final de um evento.
+
+
+Encontrando indices onde o pulso sai do nível alto para o nível baixo:
+```{r}
+pulsos <- c()
+for(i in 1:length(EEGDataFrame$pulse))
+{
+    if(isTRUE(EEGDataFrame$pulse[i] == 0 && EEGDataFrame$pulse[i-1] == 1))
+    {
+            pulsos <- c(pulsos, i)
+    }
+}
+```
+
+
+Determinando janelas:
+```{r}
+from <- c(pulsos[1],pulsos[3],pulsos[5],pulsos[7],pulsos[9])
+to <- c(pulsos[2],pulsos[4],pulsos[6],pulsos[8],pulsos[10])
+
+janelas <- data.frame(From = from, To = to)
+```
+
+Função para printar aplicar em um gráfico a função dyShading
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(dygraphs)
+
+AddShadesToDygraph <- function(dataframe, janelas, canal) 
+{
+  graph <- dygraph(dataframe,
+                       xlab = "Tempo [s]", ylab = "Amplitude",
+                       main = paste("Canal ", canal))
+  for(i in 1:nrow(janelas))
+  {
+    graph <- dyShading(graph, 
+                       from = dataframe$Time[janelas$From[i]], 
+                       to  = dataframe$Time[janelas$To[i]], 
+                       axis = "x", color = "#51bbfe")
+  }
+  print(graph)
+}
+
+```
+
+```{r message=FALSE, warning=FALSE}
+for(i in 2:(ncol(EEGDataFrame)-1))
+{
+  data <- data.frame(Time = EEGDataFrame$time, Sinal = EEGDataFrame[i]) 
+  AddShadesToDygraph(data, janelas, (i-1))
+}
+```
+
+
+### 2) Faça a filtragem de todos os sinais EEG, por meio de um filtro Butterworth de ordem n=2, para a estimativa das ondas Delta, Teta, Alfa, Beta e Gama. Os passos abaixo devem ser considerados:
+
+### Gere o gráfico do espectro de amplitude para cada um dos filtros criados deve ser plotado.
+### Faça a filtragem dos sinais por meio do uso da função filtfilt.
+### Utilize a biblioteca dygraphs e a função dyHighlight para visualizar e comparar o sinal original com o o filtrado.
+
+Gerando filtros Butterworth de ordem n = 2 para ondas Delta, Teta, Alfa, Beta e Gama
+```{r message=FALSE, warning=FALSE}
+library(signal)
+
+n <- 2 # ordem do filtro
+Fs <- 1 / (EEGDataFrame$time[2] - EEGDataFrame$time[1])
+
+FcDelta <- c(0.5,4)
+WDelta <- W <- FcDelta/(Fs/2)
+butterworthDelta <- butter(n, WDelta, type = "pass")
+
+FcTeta <- c(4, 7)
+WTeta <- W <- FcTeta/(Fs/2)
+butterworthTeta <- butter(n, WTeta, type = "pass")
+
+FcAlfa <- c(7, 13)
+WAlfa <- FcAlfa/(Fs/2)
+butterworthAlfa <- butter(n, WAlfa, type = "pass")
+
+FcBeta <- c(13, 30)
+WBeta <- FcBeta/(Fs/2)
+butterworthBeta <- butter(n, WBeta, type = "pass")
+
+FcGama <-  c(30, 70)
+WGama <- FcGama/(Fs/2)
+butterworthGama <- butter(n, WGama, type = "pass")
+```
+
+Criando a função para filtrar os sinais
+```{r}
+FiltroMultiplo <- function(sinal)
+{
+  library(signal)
+
+  sinalDelta <- filtfilt(filt = butterworthDelta, sinal)
+  sinalTeta <- filtfilt(filt = butterworthTeta, sinal)
+  sinalAlfa <- filtfilt(filt = butterworthAlfa, sinal)
+  sinalBeta <- filtfilt(filt = butterworthBeta, sinal)
+  sinalGama <- filtfilt(filt = butterworthGama, sinal)
+  
+  return(list(sinalDelta, sinalTeta, sinalAlfa, sinalBeta, sinalGama))
+  
+}
+
+```
+
+Função que calcula o espectro de amplitude
+```{r}
+EspectroAmplitude <- function(sinalFiltrado){
+  FFT <- fft(sinalFiltrado)
+  amplitudes <- Mod(FFT)
+  return(amplitudes)
+}
+```
+
+Criando vetor de frequências:
+```{r}
+  delta <- Fs/length(EEGDataFrame$chan.1)
+  frequenciaFinal <- (length(EEGDataFrame$chan.1)-1)*delta # frequencia para a n-essima amostra do sinal
+  frequencias <- seq(from = 0, to = frequenciaFinal, by = delta) # vetor de frequencia
+```
+
+### Resultados
+
+#### Canal 1
+
+```{r}
+original <- EEGDataFrame[[2]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r} 
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+
+#### Canal 2
+
+```{r}
+original <- EEGDataFrame[[3]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+#### Canal 3
+
+```{r}
+original <- EEGDataFrame[[4]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+#### Canal 4
+
+```{r}
+original <- EEGDataFrame[[5]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 5
+
+```{r}
+original <- EEGDataFrame[[6]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 6
+
+```{r}
+original <- EEGDataFrame[[7]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+
+#### Canal 7
+
+```{r}
+original <- EEGDataFrame[[8]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 8
+
+```{r}
+original <- EEGDataFrame[[9]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 9
+
+```{r}
+original <- EEGDataFrame[[10]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 10
+
+```{r}
+original <- EEGDataFrame[[11]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 11
+
+```{r}
+original <- EEGDataFrame[[12]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 12
+
+```{r}
+original <- EEGDataFrame[[13]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 13
+
+```{r}
+original <- EEGDataFrame[[14]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 14
+
+```{r}
+original <- EEGDataFrame[[15]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 15
+
+```{r}
+original <- EEGDataFrame[[16]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+#### Canal 16
+
+```{r}
+original <- EEGDataFrame[[17]]
+
+sinaisFiltrados <- FiltroMultiplo(original)
+amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+```
+
+Espectros de amplitude:
+```{r}
+dygraph(data.frame(frequencias, amplitudeDelta)) %>% dyRangeSelector(dateWindow = FcDelta)
+dygraph(data.frame(frequencias, amplitudeTeta)) %>% dyRangeSelector(dateWindow = FcTeta)
+dygraph(data.frame(frequencias, amplitudeAlfa)) %>% dyRangeSelector(dateWindow = FcAlfa)
+dygraph(data.frame(frequencias, amplitudeBeta)) %>% dyRangeSelector(dateWindow = FcBeta)
+dygraph(data.frame(frequencias, amplitudeGama)) %>% dyRangeSelector(dateWindow = FcGama)
+```
+
+Comparações entre sinal original e filtrados
+```{r}
+dygraph(data.frame(EEGDataFrame$time, Original = original, Delta = sinaisFiltrados[[1]]), main = "Delta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Teta = sinaisFiltrados[[2]]), main = "Teta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Alfa = sinaisFiltrados[[3]]), main = "Alfa") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Beta = sinaisFiltrados[[4]]), main = "Beta") %>% dyHighlight()
+dygraph(data.frame(EEGDataFrame$time, Original = original, Gama = sinaisFiltrados[[5]]), main = "Gama") %>% dyHighlight()
+```
+
+
+
+
+
+
+
+### 3) Faça um gráfico que ilustre a relação entre os eventos (no eixo x) e o valor de frequência médio (Hz) para o pico do espectro de amplitude dos 16 canais de EEG disponíveis. Neste gráfico deverão ser geradas as curvas para cada uma das ondas de sinais EEG. A figura abaixo mostra a forma como o gráfico deve ser apresentado. Os valores e tendências no gráfico são meramente ilustrativos. A sequência de passos abaixo deve ser considerada:
+
+
+#### a) Todos os sinais (os 16 canais de EEG) deverão ser filtrados por cada um dos filtros utilizados na questão 2.
+
+#### b) O espectro de amplitude deve ser estimado por meio da transformada de Fourier. O valor de amplitude deve ser expresso em dB e o valor de frequência em Hz.
+
+#### c) O espectro de amplitude deve ser estimado exclusivamente para os trechos dos sinais delimitados pelo intervalo de tempo de evento.
+
+
+#### d) O pico (valor máximo) da amplitude do espectro deve ser encontrado, e o respectivo valor de frequência (Hz) deve ser armazenado.
+
+#### e) Deve-se organizar as estimativas (do item d) de tal forma que seja possível calcular o valor médio dos valores do pico de todos os canais de EEG.
+
+
+#### f) As informações deverão ser organizadas de modo a possibilitar a geração de um gráfico tal como o ilustrado abaixo.
+
+![exemploilustrativo](exemploilustrativo.jpg)
+
+Variáveis que serão utilizadas para calcular a frequencia media dos picos:
+```{r}
+Evento1 <- data.frame(Delta = 0, Teta= 0, Alfa= 0, Beta= 0, Gama= 0)
+Evento2 <- data.frame(Delta = 0, Teta= 0, Alfa= 0, Beta= 0, Gama= 0)
+Evento3 <- data.frame(Delta = 0, Teta= 0, Alfa= 0, Beta= 0, Gama= 0)
+Evento4 <- data.frame(Delta = 0, Teta= 0, Alfa= 0, Beta= 0, Gama= 0)
+Evento5 <- data.frame(Delta = 0, Teta= 0, Alfa= 0, Beta= 0, Gama= 0)
+
+frequenciasDelta <- c()
+frequenciasTeta <- c()
+frequenciasAlfa <- c()
+frequenciasBeta <- c()
+frequenciasGama <- c()
+```
+
+Criando um Dataframe apenas com os dados dentro das janelas:
+```{r}
+EEGEventos <- data.frame(Tempo = EEGDataFrame$time)
+ 
+for(canal in 2:17)
+{
+  EEGEventos[,canal] <- rep(0, times = length(EEGDataFrame$time))
+   for(janela in 1:5)
+{
+  EEGEventos[,canal][janelas$From[janela]:janelas$To[janela]] <-   EEGDataFrame[,canal][janelas$From[janela]:janelas$To[janela]]
+  }
+}
+```
+
+Para cada evento, o sinal janelado será filtrado, o cálculo do seu espectro de amplitude será realizado e seu valor máximo será encontrado. A frequência correspondente a este valor será armazenada no vetor de sua respectiva onda (delta, teta, alfa, beta ou gama) para que o cálculo do valor médio seja realizado após este procedimento ser realizado em todos os canais.
+
+
+Função que calcula a frequência de todas as ondas filtradas para um evento:
+```{r}
+FrequenciaMedia <- function(dataframe, evento)
+{
+  data.frame(Delta = 0, Teta= 0, Alfa= 0, Beta= 0, Gama= 0)
+  for(canal in 2:17)
+{
+  sinal <- EEGEventos[,canal][janelas$From[evento]:janelas$To[evento]] 
+  
+  sinaisFiltrados <- FiltroMultiplo(sinal)
+  
+  amplitudeDelta <- EspectroAmplitude(sinaisFiltrados[[1]])
+  amplitudeTeta <- EspectroAmplitude(sinaisFiltrados[[2]])
+  amplitudeAlfa <- EspectroAmplitude(sinaisFiltrados[[3]])
+  amplitudeBeta <- EspectroAmplitude(sinaisFiltrados[[4]])
+  amplitudeGama <-EspectroAmplitude(sinaisFiltrados[[5]])
+  
+  maxDelta <- max(amplitudeDelta)
+  maxTeta <- max(amplitudeTeta)
+  maxAlfa <- max(amplitudeAlfa)
+  maxBeta <- max(amplitudeBeta)
+  maxGama <- max(amplitudeGama)
+
+  frequenciasDelta <- c(frequenciasDelta, frequencias[which(amplitudeDelta %in% maxDelta)])
+  frequenciasTeta <- c(frequenciasTeta, frequencias[which(amplitudeTeta %in% maxTeta)])
+  frequenciasAlfa <- c(frequenciasAlfa, frequencias[which(amplitudeAlfa %in% maxAlfa)])
+  frequenciasBeta <- c(frequenciasBeta, frequencias[which(amplitudeBeta %in% maxBeta)])
+  frequenciasGama <- c(frequenciasGama, frequencias[which(amplitudeGama %in% maxGama)])
+}
+
+#Delta
+frequenciaMediaDelta <- sum(frequenciasDelta) / length(frequenciasDelta)
+frequenciasDelta <- c()
+
+dataframe$Delta <- frequenciaMediaDelta
+
+#Teta
+frequenciaMediaTeta <- sum(frequenciasTeta) / length(frequenciasTeta)
+frequenciasTeta <- c()
+
+dataframe$Teta <- frequenciaMediaTeta
+
+#Alfa
+frequenciaMediaAlfa <- sum(frequenciasAlfa) / length(frequenciasAlfa)
+frequenciasAlfa <- c()
+
+dataframe$Alfa <- frequenciaMediaAlfa
+
+#Beta
+frequenciaMediaBeta <- sum(frequenciasBeta) / length(frequenciasBeta)
+frequenciasBeta <- c()
+
+dataframe$Beta <- frequenciaMediaBeta
+
+#Gama
+frequenciaMediaGama <- sum(frequenciasGama) / length(frequenciasGama)
+frequenciasGama <- c()
+
+dataframe$Gama <- frequenciaMediaGama
+
+
+return(as.data.frame(dataframe))
+}
+```
+
+```{r}
+Evento1 <- FrequenciaMedia(Evento1, 1)
+Evento2 <- FrequenciaMedia(Evento2, 2)
+Evento3 <- FrequenciaMedia(Evento3, 3)
+Evento4 <- FrequenciaMedia(Evento4, 4)
+Evento5 <- FrequenciaMedia(Evento5, 5)
+```
+
+```{r}
+Delta <- c(Evento1$Delta, Evento2$Delta, Evento3$Delta, Evento4$Delta, Evento5$Delta)
+Teta <- c(Evento1$Teta, Evento2$Teta, Evento3$Teta, Evento4$Teta, Evento5$Teta)
+Alfa <- c(Evento1$Alfa, Evento2$Alfa, Evento3$Alfa, Evento4$Alfa, Evento5$Alfa)
+Beta <- c(Evento1$Beta, Evento2$Beta, Evento3$Beta, Evento4$Beta, Evento5$Beta)
+Gama <- c(Evento1$Gama, Evento2$Gama, Evento3$Gama, Evento4$Gama, Evento5$Gama)
+
+
+data <- data.frame(X = c(1:5), Delta = Delta, Teta = Teta, Alfa = Alfa, Beta = Beta, Gama = Gama)
+
+library(dygraphs)
+dygraph(data, xlab = "Eventos", ylab = "Frequência Média")
+```
+
+
+
+
